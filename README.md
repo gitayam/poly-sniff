@@ -80,7 +80,22 @@ poly_sniff will-x-happen-by-date --export-all
 
 ## Terminal output
 
-Flagged users are printed as a table:
+poly_sniff flags users through a conjunctive filter — all four conditions must be satisfied simultaneously. A user who passes only two or three criteria is  not flagged.
+
+The four criteria are:
+
+1. userDirectionalConsistency ≥ 0.85
+2. userDominantSideRatio ≥ 0.90
+3. userPriceConvictionScore < 0
+4. lateVolumeRatio ≥ 0.50
+
+All thresholds are configurable via CLI flags. Defaults live in config.py.
+
+Each metric is detailed in the `Detection metrics` section below.
+
+Optionally, if --resolved-outcome is provided, an additional filter is applied: only users whose dominant side matches the winning outcome are kept (bullish for Yes, bearish for No). When omitted, users are flagged in both directions, which is useful for pre-resolution analysis.
+
+Flagged users are printed as a table in the CLI.
 
 ```
 userName     proxyWallet   joinDate_est          xUsername
