@@ -14,7 +14,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-_MODEL = 'gpt-5-mini'
+_MODELS = ['gpt-5-mini', 'gpt-4o-mini']
 
 
 def _get_client():
@@ -36,14 +36,27 @@ def _get_client():
     return OpenAI(api_key=api_key)
 
 
-def _chat(client, prompt: str, max_tokens: int = 1000) -> str:
-    """Send a chat completion request and return the text response."""
-    resp = client.chat.completions.create(
-        model=_MODEL,
-        messages=[{'role': 'user', 'content': prompt}],
-        max_tokens=max_tokens,
-    )
-    return resp.choices[0].message.content.strip()
+def _chat(client, prompt: str, max_tokens: int = 2000) -> str:
+    """Send a chat completion request, trying gpt-5-mini then falling back.
+
+    GPT-5-mini is a reasoning model that consumes tokens on internal thinking.
+    If it returns empty content, falls back to gpt-4o-mini.
+    """
+    for model in _MODELS:
+        try:
+            resp = client.chat.completions.create(
+                model=model,
+                messages=[{'role': 'user', 'content': prompt}],
+                max_completion_tokens=max_tokens,
+            )
+            content = resp.choices[0].message.content
+            if content and content.strip():
+                return content.strip()
+            # Empty response (reasoning model ate all tokens) — try next
+        except Exception:
+            continue
+
+    return ''
 
 
 # ─── Strategy A: Generate market-style queries ───
@@ -72,8 +85,12 @@ Focus on near-term, binary, verifiable outcomes.
 Return ONLY the questions, one per line. No numbering, no explanations."""
 
     t0 = time.time()
-    result = _chat(client, prompt)
+    result = _chat(client, prompt, max_tokens=2000)
     elapsed = time.time() - t0
+
+    if not result:
+        print(f"  Strategy A   : 0 queries ({elapsed:.1f}s) [empty response]")
+        return []
 
     queries = [line.strip().strip('-').strip('•').strip()
                for line in result.split('\n')
@@ -114,7 +131,7 @@ Identify the 3-6 most relevant tag slugs for finding related Polymarket predicti
 Return ONLY the slugs, one per line. Lowercase, hyphenated. No explanations."""
 
     t0 = time.time()
-    result = _chat(client, prompt, max_tokens=200)
+    result = _chat(client, prompt, max_tokens=1000)
     elapsed = time.time() - t0
 
     tags = [line.strip().lower().replace(' ', '-')
@@ -125,8 +142,11 @@ Return ONLY the slugs, one per line. Lowercase, hyphenated. No explanations."""
             for t in tags]
     tags = [t for t in tags if t and len(t) > 1]
 
-    print(f"  Strategy B   : {len(tags)} tags ({elapsed:.1f}s)")
-    print(f"    → {', '.join(tags)}")
+    if not tags:
+        print(f"  Strategy B   : 0 tags ({elapsed:.1f}s) [raw: {repr(result[:100])}]")
+    else:
+        print(f"  Strategy B   : {len(tags)} tags ({elapsed:.1f}s)")
+        print(f"    → {', '.join(tags)}")
 
     return tags
 
@@ -156,15 +176,18 @@ def semantic_prefilter(claims: list[str], candidates: list[dict],
     prompt = f"""Given these claims from a news article:
 {claims_text}
 
-Which of these prediction markets are potentially related? Score each 0-100.
-Only return markets scoring above {threshold}.
+Score how related each prediction market is to these claims (0-100).
+A market is related if it covers the same topic, region, actors, or consequences.
+Even indirect connections count (e.g., an article about Iran attacks → a market about US military action in Iran).
 
 Markets:
 {cand_text}
 
-Return ONLY lines in format: NUMBER: SCORE
-Example: 3: 75
-No explanations. Only include markets above {threshold}."""
+Return ALL markets with score above {threshold} in format: NUMBER: SCORE
+Example:
+3: 75
+7: 45
+No explanations, just NUMBER: SCORE lines."""
 
     t0 = time.time()
     result = _chat(client, prompt, max_tokens=500)
@@ -232,10 +255,20 @@ def run_comparison(claims: list[str], title: str = '',
         a_candidates = []
         a_slugs = set()
 
+        # Try SearXNG with generated queries
         for q in queries[:5]:
-            # Try SearXNG with the generated query
             searx_results = _search_via_searxng(q, limit=5)
             for c in searx_results:
+                if c['slug'] not in a_slugs:
+                    a_slugs.add(c['slug'])
+                    a_candidates.append(c)
+
+        # Also extract entities from AI queries and search Gamma tags
+        ai_entities = _extract_key_entities(' '.join(queries))
+        ai_tags = _entities_to_tag_slugs(ai_entities)
+        if ai_tags:
+            tag_results = _search_via_gamma_tags(ai_tags[:4])
+            for c in tag_results:
                 if c['slug'] not in a_slugs:
                     a_slugs.add(c['slug'])
                     a_candidates.append(c)
