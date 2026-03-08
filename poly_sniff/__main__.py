@@ -193,6 +193,10 @@ def run_search(args: argparse.Namespace) -> None:
             result = sniff_market(slug, verbose=True)
             if result:
                 sniff_results[slug] = result
+    elif (args.sniff or args.analyze) and display:
+        active_count = sum(1 for r in display if _is_active(r.get('slug', '')))
+        if active_count == 0:
+            print(f"\n  --sniff: no active markets to analyze ({len(display)} results are all resolved/inactive).")
 
     # Build table
     headers = ['#', 'Rel', 'Status']
