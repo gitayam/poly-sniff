@@ -105,12 +105,23 @@ Return ONLY the questions, one per line. No numbering, no explanations."""
     return queries
 
 
-# ─── Strategy B: Generate smart tag slugs ───
+# ─── Strategy B: Generate smart tags + specific search phrases ───
 
 def generate_smart_tags(claims: list[str], title: str = '') -> list[str]:
     """Ask GPT to identify optimal Polymarket tag slugs from claims.
 
     Returns list of tag slug strings.
+    """
+    result = generate_ai_search(claims, title)
+    return result.get('tags', [])
+
+
+def generate_ai_search(claims: list[str], title: str = '') -> dict:
+    """Ask GPT to generate both broad tags and specific search phrases.
+
+    Returns dict with:
+        tags: list of Polymarket tag slugs (broad discovery)
+        phrases: list of 2-4 word specific search phrases (nuanced discovery)
     """
     client = _get_client()
 
@@ -120,35 +131,72 @@ def generate_smart_tags(claims: list[str], title: str = '') -> list[str]:
     prompt = f"""Given these claims from a news article:
 {claims_text}
 {context}
-Polymarket categorizes prediction markets with topic tag slugs like:
-iran, israel, tariffs, china, trump, ukraine, bitcoin, fed-rate, elections,
-supreme-court, nato, oil, russia, north-korea, ai, tech, crypto, sports,
-middle-east, europe, climate, congress, senate, housing, inflation, jobs,
-gaza, hamas, hezbollah, syria, turkey, india, japan, korea, taiwan,
-trade-war, sanctions, nuclear, military, war, peace, ceasefire, etc.
+I need two things to find related Polymarket prediction markets:
 
-Identify the 3-6 most relevant tag slugs for finding related Polymarket prediction markets.
-Return ONLY the slugs, one per line. Lowercase, hyphenated. No explanations."""
+1. TAGS: Polymarket uses topic tag slugs like: iran, israel, tariffs, china,
+trump, ukraine, bitcoin, fed-rate, elections, supreme-court, nato, oil,
+russia, ai, tech, crypto, middle-east, military, war, sanctions, etc.
+Give me 3-6 relevant tag slugs.
+
+2. PHRASES: Give me 3-5 specific 2-4 word search phrases that capture the
+SPECIFIC nuance of this article (not just the broad topic). Think about what
+a bettor would search for. For example:
+- Article about US soldier deaths in Iran → "us casualties iran", "american killed military"
+- Article about AI company layoffs → "tech layoffs 2026", "ai company cuts"
+- Article about Trump tariffs on China → "china tariff rate", "trade war escalation"
+
+Return in this exact format:
+TAGS:
+tag1
+tag2
+tag3
+
+PHRASES:
+phrase one
+phrase two
+phrase three"""
 
     t0 = time.time()
-    result = _chat(client, prompt, max_tokens=1000)
+    result = _chat(client, prompt, max_tokens=2000)
     elapsed = time.time() - t0
 
-    tags = [line.strip().lower().replace(' ', '-')
-            for line in result.split('\n')
-            if line.strip() and len(line.strip()) > 1]
-    # Clean up any bullets or numbering
-    tags = [t.lstrip('-').lstrip('•').lstrip('.').lstrip('0123456789').strip()
-            for t in tags]
-    tags = [t for t in tags if t and len(t) > 1]
+    tags = []
+    phrases = []
+    section = None
 
-    if not tags:
-        print(f"  Strategy B   : 0 tags ({elapsed:.1f}s) [raw: {repr(result[:100])}]")
+    for line in result.split('\n'):
+        line = line.strip()
+        if not line:
+            continue
+        if line.upper().startswith('TAGS'):
+            section = 'tags'
+            continue
+        if line.upper().startswith('PHRASES') or line.upper().startswith('PHRASE'):
+            section = 'phrases'
+            continue
+
+        # Clean up bullets/numbering
+        clean = line.lstrip('-').lstrip('•').lstrip('.').lstrip('0123456789').strip()
+        if not clean or len(clean) < 2:
+            continue
+
+        if section == 'tags':
+            tag = clean.lower().replace(' ', '-')
+            if len(tag) > 1:
+                tags.append(tag)
+        elif section == 'phrases':
+            if len(clean) > 3:
+                phrases.append(clean.lower())
+
+    if not tags and not phrases:
+        print(f"  ai search    : 0 results ({elapsed:.1f}s) [raw: {repr(result[:100])}]")
     else:
-        print(f"  Strategy B   : {len(tags)} tags ({elapsed:.1f}s)")
-        print(f"    → {', '.join(tags)}")
+        if tags:
+            print(f"  ai tags      : {', '.join(tags)} ({elapsed:.1f}s)")
+        if phrases:
+            print(f"  ai phrases   : {', '.join(phrases)}")
 
-    return tags
+    return {'tags': tags, 'phrases': phrases}
 
 
 # ─── Strategy C: Semantic pre-filter ───

@@ -332,16 +332,16 @@ def fetch_market_prices(candidates: list[dict]) -> dict[str, dict]:
     return prices
 
 
-def _get_ai_tags(claims: list[str]) -> list[str]:
-    """Try to get AI-generated tag slugs. Returns empty list if unavailable."""
+def _get_ai_search(claims: list[str]) -> dict:
+    """Try to get AI-generated tags and search phrases. Returns empty dict if unavailable."""
     try:
-        from .ai_discovery import generate_smart_tags
-        return generate_smart_tags(claims)
+        from .ai_discovery import generate_ai_search
+        return generate_ai_search(claims)
     except (ImportError, ValueError):
-        return []
+        return {}
     except Exception as e:
-        print(f"  ai tags      : unavailable ({e})")
-        return []
+        print(f"  ai search    : unavailable ({e})")
+        return {}
 
 
 def search_markets(claims: list[str], limit_per_query: int = 10) -> list[dict]:
@@ -370,12 +370,14 @@ def search_markets(claims: list[str], limit_per_query: int = 10) -> list[dict]:
         if tag_results:
             print(f"  gamma tags   : {len(tag_results)} events")
 
-    # 2. AI SMART TAGS: GPT-generated tag slugs (optional)
-    ai_tags = _get_ai_tags(claims)
-    # Only search tags we haven't already searched
+    # 2. AI SMART SEARCH: GPT-generated tags + specific search phrases (optional)
+    ai_search = _get_ai_search(claims)
+    ai_tags = ai_search.get('tags', [])
+    ai_phrases = ai_search.get('phrases', [])
+
+    # Search new tags we haven't already searched
     new_ai_tags = [t for t in ai_tags if t not in set(tag_slugs)]
     if new_ai_tags:
-        print(f"  ai tags      : {', '.join(new_ai_tags)}")
         ai_results = _search_via_gamma_tags(new_ai_tags[:4])
         ai_count = 0
         for c in ai_results:
@@ -385,6 +387,23 @@ def search_markets(claims: list[str], limit_per_query: int = 10) -> list[dict]:
                 ai_count += 1
         if ai_count:
             print(f"  ai discovery : +{ai_count} new events")
+
+    # Search AI-generated specific phrases via SearXNG
+    if ai_phrases:
+        ai_searx_count = 0
+        for phrase in ai_phrases[:5]:
+            results = _search_via_searxng(phrase, limit=5)
+            for c in results:
+                if c['slug'] not in seen_slugs:
+                    seen_slugs.add(c['slug'])
+                    candidates.append(c)
+                    ai_searx_count += 1
+                if len(candidates) >= MAX_CANDIDATES:
+                    break
+            if len(candidates) >= MAX_CANDIDATES:
+                break
+        if ai_searx_count:
+            print(f"  ai phrases   : +{ai_searx_count} via search")
 
     # 3. SUPPLEMENT: SearXNG keyword search
     searxng_queries = _build_searxng_queries(claims)
