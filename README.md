@@ -83,14 +83,14 @@ poly_sniff flags users through a conjunctive filter — all four conditions must
 
 The four criteria are:
 
-1. userDirectionalConsistency ≥ 0.85
-2. userDominantSideRatio ≥ 0.90
-3. userPriceConvictionScore < 0
-4. lateVolumeRatio ≥ 0.50
+1. **Directional Consistency** ≥ 0.85
+2. **Dominant Side Ratio** ≥ 0.90
+3. **Price Conviction Score** < 0
+4. **Late Volume Ratio** ≥ 0.50
 
 All thresholds are configurable via CLI flags. Defaults live in config.py.
 
-Each metric is detailed in the `Detection metrics` section below.
+Each metric is detailed in the **Detection metrics** section below.
 
 Optionally, if --resolved-outcome is provided, an additional filter is applied: only users whose dominant side matches the winning outcome are kept (bullish for Yes, bearish for No). When omitted, users are flagged in both directions, which is useful for pre-resolution analysis.
 
