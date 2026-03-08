@@ -65,6 +65,33 @@ def _keyword_fallback(claim: str, candidates: list[dict], all_claims: list[str] 
     return results
 
 
+def _ai_or_keyword_fallback(claim: str, candidates: list[dict],
+                             all_claims: list[str] = None) -> list[dict]:
+    """Try AI semantic ranking via OpenAI, fall back to keyword matching."""
+    try:
+        from .ai_discovery import semantic_prefilter
+        combined = [claim] + (all_claims[:10] if all_claims else [])
+
+        scored = semantic_prefilter(combined, candidates, threshold=10)
+        if scored:
+            # Convert to ranker output format
+            results = []
+            for c in scored:
+                results.append({
+                    'slug': c['slug'],
+                    'title': c.get('title', ''),
+                    'relevance': c.get('ai_prescore', 0),
+                    'reasoning': 'AI semantic match',
+                })
+            print(f"  AI ranking   : {len(results)} scored")
+            return results
+    except Exception as e:
+        print(f"  AI ranking unavailable ({e})")
+
+    print(f"  Falling back to keyword matching.")
+    return _keyword_fallback(claim, candidates, all_claims)
+
+
 def rank_candidates(claim: str, candidates: list[dict],
                     all_claims: list[str] = None,
                     researchtools_url: str = None) -> list[dict]:
@@ -111,5 +138,5 @@ def rank_candidates(claim: str, candidates: list[dict],
         return results
 
     except requests.RequestException as e:
-        print(f"  Warning: LLM ranking unavailable ({e}), using keyword fallback.")
-        return _keyword_fallback(claim, candidates, all_claims)
+        print(f"  Warning: LLM ranking unavailable ({e}), trying AI fallback...")
+        return _ai_or_keyword_fallback(claim, candidates, all_claims)

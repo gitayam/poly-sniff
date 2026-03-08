@@ -339,6 +339,9 @@ def _get_ai_tags(claims: list[str]) -> list[str]:
         return generate_smart_tags(claims)
     except (ImportError, ValueError):
         return []
+    except Exception as e:
+        print(f"  ai tags      : unavailable ({e})")
+        return []
 
 
 def search_markets(claims: list[str], limit_per_query: int = 10) -> list[dict]:

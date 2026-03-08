@@ -362,8 +362,8 @@ def main() -> None:
     search_parser.add_argument(
         '--min-relevance',
         type=int,
-        default=50,
-        help='Minimum relevance score to display (0-100, default: 50)',
+        default=None,
+        help='Minimum relevance score to display (0-100, default: 25)',
     )
     search_parser.add_argument(
         '--discovery-test',
