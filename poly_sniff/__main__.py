@@ -4,8 +4,6 @@ import sys
 import pandas as pd
 from tabulate import tabulate
 
-pd.set_option('future.no_silent_downcasting', True)
-
 from . import config
 from .data import loader, preprocessing, scraper
 from .metrics import activity, conviction, directional, dominance, timing
