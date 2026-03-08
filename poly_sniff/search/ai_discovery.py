@@ -138,11 +138,14 @@ trump, ukraine, bitcoin, fed-rate, elections, supreme-court, nato, oil,
 russia, ai, tech, crypto, middle-east, military, war, sanctions, etc.
 Give me 3-6 relevant tag slugs.
 
-2. PHRASES: Give me 3-5 specific 2-4 word search phrases that capture the
-SPECIFIC nuance of this article (not just the broad topic). Think about what
-a bettor would search for. For example:
-- Article about US soldier deaths in Iran → "us casualties iran", "american killed military"
-- Article about AI company layoffs → "tech layoffs 2026", "ai company cuts"
+2. PHRASES: Give me 3-5 search phrases (2-4 words each) that a BETTOR on
+Polymarket would use to find prediction markets related to this article.
+Do NOT use article-specific details (video titles, school names, memes).
+Instead, think about the UNDERLYING geopolitical/economic events and
+consequences that bettors would wager on. For example:
+- Article about Iran Lego propaganda video → "iran retaliation", "iran us conflict", "iran propaganda war"
+- Article about US soldier deaths in Iran → "us casualties iran", "military action iran"
+- Article about AI company layoffs → "tech layoffs 2026", "ai industry decline"
 - Article about Trump tariffs on China → "china tariff rate", "trade war escalation"
 
 Return in this exact format:
