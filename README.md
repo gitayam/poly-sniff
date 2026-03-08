@@ -2,10 +2,11 @@
 
 > Hard fork of [agile-enigma/poly_sniff](https://github.com/agile-enigma/poly-sniff) — extended with claim-to-market search, AI-powered article analysis, and multi-source market discovery.
 
-A CLI tool for [Polymarket](https://polymarket.com) prediction market intelligence. It does two things:
+A CLI tool for [Polymarket](https://polymarket.com) prediction market intelligence. It does three things:
 
-1. **Search** — Find relevant Polymarket markets from news articles or claim text, using AI claim extraction, entity-based tag search, and LLM relevance ranking.
-2. **Analyze** — Detect suspicious betting behavior by scraping transaction data, computing behavioral metrics, and flagging users whose trading patterns suggest insider knowledge.
+1. **Search** — Find relevant Polymarket markets from news articles or claim text, using AI claim extraction, entity-based tag search, and LLM relevance ranking. Optionally show confidence ratings and batch-sniff for insider patterns.
+2. **Scan** — Survey topic areas for behavioral anomalies across multiple markets. On-demand early warning detection.
+3. **Analyze** — Detect suspicious betting behavior by scraping transaction data, computing behavioral metrics, and flagging users whose trading patterns suggest insider knowledge.
 
 ## What's new in this fork
 
@@ -16,6 +17,10 @@ This fork extends the original insider detection tool into a broader Polymarket 
 - **Entity extraction** — Identifies key entities (countries, people, orgs) from claims and maps them to Polymarket topic tags for reliable market discovery.
 - **Multi-claim ranking** — Passes all extracted claims as context to the LLM ranker for better semantic matching.
 - **Market status display** — Shows Active/Resolved status in search results.
+- **`scan` subcommand** — Discover markets by topic tag and batch-analyze for insider patterns. Surfaces anomalies across an entire topic area.
+- **`--sniff` batch analysis** — Run insider detection across all matched active markets, not just the top one. Replaces the old `--analyze` flag.
+- **`--confidence` ratings** — Show market prices as implied probabilities with behavioral signal strength (STRONG/MODERATE/QUIET).
+- **Signal strength** — Per-market anomaly scoring based on flagged user counts, directional consistency, and late volume patterns.
 
 ## Installation
 
@@ -55,8 +60,14 @@ poly_sniff search --claim "Will Iran retaliate against Israel?"
 # Combine both — URL claims + explicit claim
 poly_sniff search --url "https://example.com/article" --claim "tariffs on China"
 
-# Auto-analyze the top matching market for insider behavior
-poly_sniff search --url "https://example.com/article" --analyze
+# Sniff all matched active markets for insider patterns
+poly_sniff search --url "https://example.com/article" --sniff
+
+# Show confidence ratings (price + behavioral signal)
+poly_sniff search --claim "Iran retaliates" --confidence
+
+# Both: confidence + sniff all matches
+poly_sniff search --url "https://example.com/article" --sniff --confidence
 ```
 
 #### Search options
@@ -65,7 +76,9 @@ poly_sniff search --url "https://example.com/article" --analyze
 |------|---------|-------------|
 | `--url`, `-u` | — | URL to extract claims from via AI |
 | `--claim`, `-c` | — | Direct claim text to search for |
-| `--analyze`, `-a` | — | Auto-run insider analysis on the top match |
+| `--sniff`, `-s` | — | Run insider analysis across all matched active markets |
+| `--confidence` | — | Show price and behavioral signal columns |
+| `--analyze`, `-a` | — | *(Deprecated)* Analyze top match only. Use `--sniff`. |
 | `--top-n`, `-n` | `5` | Number of results to display |
 | `--min-relevance` | `50` | Minimum relevance score (0-100) |
 
@@ -89,6 +102,43 @@ Ranking candidates by relevance...
   1   70  Active    Iran response to Israel by April 15?  iran-response-to-israel-by-apr-15  Directly related...
   2   70  Resolved  Iran response to Israel by Friday?    iran-response-to-israel-by-friday  Covers same topic...
 ```
+
+### Scan for anomalies
+
+Survey a topic area for unusual betting patterns:
+
+```bash
+# Scan all active Iran-related markets
+poly_sniff scan --tags iran
+
+# Scan multiple topics
+poly_sniff scan --tags iran,tariffs,china
+
+# Scan specific markets by slug
+poly_sniff scan --markets "iran-response-by-apr-15,china-tariffs-2025"
+
+# Widen the net — more markets, looser thresholds
+poly_sniff scan --tags iran --max-markets 20 --min-directional 0.75
+```
+
+#### Scan options
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--tags`, `-t` | — | Comma-separated Polymarket tag slugs |
+| `--markets`, `-m` | — | Comma-separated market slugs (skip discovery) |
+| `--min-volume` | `10000` | Skip markets below this USDC volume |
+| `--max-markets` | `10` | Maximum markets to analyze |
+| `--limit` | `20` | Top position holders to scrape per market |
+| Threshold flags | Same as analyze | `--min-directional`, `--min-dominant`, etc. |
+
+#### Signal strength levels
+
+| Level | Meaning |
+|-------|---------|
+| **STRONG** | 2+ flagged users, or 1 flagged with very high late volume (>=70%) |
+| **MODERATE** | 1 flagged user, or elevated aggregate directional consistency + late volume |
+| **QUIET** | No anomalies detected |
 
 ### Analyze a market
 
@@ -166,8 +216,10 @@ When `--resolved-outcome` is provided, an additional filter is applied: only use
 
 ```
 poly_sniff/
-├── __main__.py          # CLI entry point (analyze + search subcommands)
+├── __main__.py          # CLI entry point (analyze + search + scan subcommands)
 ├── config.py            # Thresholds and defaults
+├── sniff.py             # Shared sniff pipeline (single-market insider analysis)
+├── scan.py              # Scan subcommand (tag-based anomaly detection)
 ├── output.py            # Flagging logic and table/xlsx output
 ├── scaffold.py          # Hourly time-series grid builder
 ├── data/
@@ -179,11 +231,12 @@ poly_sniff/
 │   ├── conviction.py    # Price conviction scoring
 │   ├── directional.py   # Directional consistency
 │   ├── dominance.py     # Dominant side ratio
+│   ├── signal.py        # Per-market signal strength (STRONG/MODERATE/QUIET)
 │   └── timing.py        # Late volume ratio
 └── search/
     ├── config.py         # Search-specific config (API URLs, limits)
     ├── claims.py         # Claim extraction (AI + metadata + URL fallbacks)
-    ├── polymarket.py     # Market search (Gamma tags + SearXNG)
+    ├── polymarket.py     # Market search (Gamma tags + SearXNG + prices)
     └── ranker.py         # LLM + keyword relevance ranking
 ```
 
