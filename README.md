@@ -41,7 +41,8 @@ poly_sniff <market_slug> [options]
 
 | Argument | Description |
 |----------|-------------|
-| `market_slug` | Slug of the Polymarket market to analyze (from the market URL) |
+| `market_slug` | Slug of the Polymarket market to analyze. Found after `/event/` in the market URL, e.g. `polymarket.com/event/will-x-happen-by-date` |
+|
 
 ### Options
 
