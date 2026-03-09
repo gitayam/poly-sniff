@@ -12,11 +12,11 @@ A CLI tool for [Polymarket](https://polymarket.com) prediction market intelligen
 
 This fork extends the original insider detection tool into a broader Polymarket research toolkit:
 
-- **`search` subcommand** — Given a URL or claim text, extracts verifiable claims via GPT, discovers matching Polymarket markets via Gamma API tag search + SearXNG, and ranks them by relevance using LLM re-ranking.
+- **`search` subcommand** — Given a URL or claim text, extracts verifiable claims via GPT, discovers matching Polymarket markets, and ranks them by relevance using LLM re-ranking.
+- **AI-powered market discovery** — GPT generates bettor-oriented tag slugs and search phrases (e.g., "iran retaliation", "trade war escalation") for precise market matching. Falls back to entity extraction when no API key is set.
 - **Paywall bypass** — Scrapes paywalled articles via archive.ph, Wayback Machine, Google AMP/webcache fallbacks with browser profile rotation.
-- **Entity extraction** — Identifies key entities (countries, people, orgs) from claims and maps them to Polymarket topic tags for reliable market discovery.
-- **Multi-claim ranking** — Passes all extracted claims as context to the LLM ranker for better semantic matching.
-- **Market status display** — Shows Active/Resolved status in search results.
+- **Multi-source search** — AI tags → Gamma API, AI phrases → SearXNG, entity extraction → Gamma, keyword search → SearXNG. Each layer catches what the previous misses.
+- **Three-tier ranking** — LLM re-ranking via researchtoolspy → AI semantic scoring via GPT → keyword matching fallback.
 - **`scan` subcommand** — Discover markets by topic tag and batch-analyze for insider patterns. Surfaces anomalies across an entire topic area.
 - **`--sniff` batch analysis** — Run insider detection across all matched active markets, not just the top one. Replaces the old `--analyze` flag.
 - **`--confidence` ratings** — Show market prices as implied probabilities with behavioral signal strength (STRONG/MODERATE/QUIET).
@@ -35,14 +35,17 @@ pip install -e .
 
 ### Configuration
 
-Copy `.env.example` to `.env` and set your ResearchTools API URL:
+Copy `.env.example` to `.env` and configure:
 
 ```bash
 cp .env.example .env
-# Edit .env — default is https://researchtools.net
+# Edit .env:
+#   RESEARCHTOOLS_URL=https://researchtools.net   (claim extraction + LLM ranking)
+#   OPENAI_API_KEY=sk-...                         (optional: AI market discovery)
 ```
 
-The search features require a running [researchtoolspy](https://github.com/gitayam/researchtoolspy) instance for AI claim extraction and LLM ranking. The analyze features work standalone.
+- **Required:** A [researchtoolspy](https://github.com/gitayam/researchtoolspy) instance for AI claim extraction and LLM ranking.
+- **Optional:** An OpenAI API key enables AI-powered market discovery (GPT-generated tags + bettor-oriented search phrases). Without it, search falls back to entity extraction + keyword matching.
 
 ## Usage
 
@@ -80,27 +83,29 @@ poly_sniff search --url "https://example.com/article" --sniff --confidence
 | `--confidence` | — | Show price and behavioral signal columns |
 | `--analyze`, `-a` | — | *(Deprecated)* Analyze top match only. Use `--sniff`. |
 | `--top-n`, `-n` | `5` | Number of results to display |
-| `--min-relevance` | `50` | Minimum relevance score (0-100) |
+| `--min-relevance` | `25` | Minimum relevance score (0-100) |
 
 #### Example output
 
 ```
-Extracting claims from URL: https://www.ft.com/content/...
-  ai claims    : 11 (wayback, 842 words)
-  summary      : Tehran residents warned of acid rain after Israeli attack...
-  title  : Tehran residents warned of acid rain after oil storage attack
+Extracting claims from URL: https://www.rt.com/news/...
+  ai claims    : 10 (original, 1125 words)
+  summary      : Iran has released a Lego-style video depicting retaliation...
+  title  : Iran deploys Lego VIDEO in PR war against US
   claims : 15
 
 Searching Polymarket for matching markets...
-  entity tags  : tehran, israel, iran
-  gamma tags   : 20 events
-  candidates   : 20
+  ai tags      : 60 events from iran, israel, military, war, middle-east, us-military, sanctions, oil
+  ai phrases   : +1 via search (iran retaliation, us strikes iran, israel iran conflict, middle east escalation)
+  entity tags  : +1 from lego, iranian, minab, trump
+  candidates   : 63
 
-Ranking candidates by relevance...
+Ranking 25 candidates by relevance...
 
-  #  Rel  Status    Market                                Slug                              Reasoning
-  1   70  Active    Iran response to Israel by April 15?  iran-response-to-israel-by-apr-15  Directly related...
-  2   70  Resolved  Iran response to Israel by Friday?    iran-response-to-israel-by-friday  Covers same topic...
+  #  Rel  Status    Market                                         Slug                                  Reasoning
+  1   70  Resolved  Iran response to Israel by Friday?              iran-response-to-israel-by-wednesda   This market is related...
+  2   70  Resolved  Iran response to Israel by April 19?            iran-response-to-israel-by-april-19   Similar to the previous...
+  3   40  Resolved  U.S. military action against Iran by April 15   us-military-action-against-iran-by-   This market is related...
 ```
 
 ### Scan for anomalies
@@ -183,15 +188,17 @@ The market slug is found after `/event/` in the Polymarket URL, e.g. `polymarket
 
 ## How search works
 
-The search pipeline has four stages:
+The search pipeline has five stages:
 
 1. **Claim extraction** — The article URL is sent to the researchtoolspy `/api/tools/extract-claims` endpoint, which scrapes the content (with paywall bypass via archive.ph/Wayback/AMP), then uses GPT to extract 5-15 verifiable claims with categories, confidence scores, and suggested prediction market questions.
 
-2. **Market discovery** — Key entities (countries, people, organizations) are extracted from claims and mapped to Polymarket tag slugs. The Gamma API `tag_slug` parameter returns categorized events reliably. SearXNG provides supplementary results.
+2. **AI market discovery** *(primary, requires OPENAI_API_KEY)* — GPT analyzes the claims and generates two things: (a) 5-8 Polymarket tag slugs including tangential topics (e.g., `oil`, `sanctions` for an Iran article), and (b) 5-8 bettor-oriented search phrases that capture the specific nuance of the article (e.g., "iran retaliation", "us casualties iran" instead of just "iran"). Tags are searched via the Gamma API; phrases are searched via SearXNG.
 
-3. **LLM ranking** — All candidates are sent to the `/api/tools/claim-match` endpoint with the full claim context. GPT scores each market's relevance (0-100) with reasoning.
+3. **Entity extraction** *(fallback/supplement)* — Key entities (countries, people, organizations) are extracted from claims via regex and mapped to Polymarket tag slugs. Searches any tags not already covered by AI discovery.
 
-4. **Display** — Results are filtered by relevance threshold and displayed with market status (Active/Resolved).
+4. **Ranking** — Three-tier fallback: (a) LLM re-ranking via researchtoolspy `/api/tools/claim-match` with full claim context, (b) AI semantic scoring via GPT if the LLM ranker is unavailable, (c) keyword matching as final fallback. Each scores relevance 0-100.
+
+5. **Display** — Results filtered by relevance threshold, displayed with market status (Active/Resolved), optional price confidence, and optional insider signal strength.
 
 ## How insider detection works
 
@@ -235,9 +242,10 @@ poly_sniff/
 │   └── timing.py        # Late volume ratio
 └── search/
     ├── config.py         # Search-specific config (API URLs, limits)
+    ├── ai_discovery.py   # GPT-powered tag + phrase generation, semantic scoring
     ├── claims.py         # Claim extraction (AI + metadata + URL fallbacks)
-    ├── polymarket.py     # Market search (Gamma tags + SearXNG + prices)
-    └── ranker.py         # LLM + keyword relevance ranking
+    ├── polymarket.py     # Market search (AI tags + Gamma + SearXNG + prices)
+    └── ranker.py         # Three-tier relevance ranking (LLM → AI → keyword)
 ```
 
 ## Requirements
@@ -245,6 +253,7 @@ poly_sniff/
 - Python 3.10+
 - pandas, openpyxl, requests, tabulate, python-dotenv
 - For search features: a [researchtoolspy](https://github.com/gitayam/researchtoolspy) instance
+- Optional: `openai` package + `OPENAI_API_KEY` for AI-powered market discovery
 
 ## Mirrors
 
